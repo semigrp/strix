@@ -21,7 +21,7 @@ export type PermissionTier = "inspect" | "workspace-write" | "external-write";
 export type Runtime = "node" | "direct";
 
 export type ContextQueryV1 = {
-  schema: "boros.context-query/v1";
+  schema: "bouro.context-query/v1";
   roots: ResourceRefV1[];
   purpose: string;
   asOf?: string;
@@ -38,7 +38,7 @@ export type ContextSelection = {
 };
 
 export type ContextBundleV1 = {
-  schema: "boros.context-bundle/v1";
+  schema: "bouro.context-bundle/v1";
   id: string;
   createdAt: string;
   ontology: ResourceRefV1;
@@ -58,7 +58,7 @@ export type EvidenceAssessment = {
 };
 
 export type RegisterEvidenceCommandV1 = {
-  schema: "boros.register-evidence/v1";
+  schema: "bouro.register-evidence/v1";
   source: "ouro";
   sourceEventId: string;
   evidence: {
@@ -258,8 +258,8 @@ export type ExecutionEvent = {
   digest: `sha256:${string}`;
 };
 
-export type BorosOutboxEntry = {
-  schema: "ouro.boros-outbox/v1";
+export type BouroOutboxEntry = {
+  schema: "ouro.bouro-outbox/v1";
   id: string;
   command: RegisterEvidenceCommandV1;
   status: "pending" | "delivered";
@@ -288,7 +288,7 @@ export type OuroStore = {
   gates: Record<string, GateResult>;
   events: ExecutionEvent[];
   eventChainHead?: `sha256:${string}`;
-  borosOutbox: Record<string, BorosOutboxEntry>;
+  bouroOutbox: Record<string, BouroOutboxEntry>;
 };
 
 export type FukuroTelemetryEventV1 = {
@@ -321,7 +321,7 @@ export function emptyStore(now = nowIso()): OuroStore {
     attempts: {},
     gates: {},
     events: [],
-    borosOutbox: {},
+    bouroOutbox: {},
   };
 }
 

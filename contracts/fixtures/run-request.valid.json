@@ -10,16 +10,16 @@
     "title": "Execute one pinned procedure"
   },
   "experiment": {
-    "system": "boros",
+    "system": "bouro",
     "type": "experiment",
     "id": "EXP-0001",
     "version": "1"
   },
   "contextQuery": {
-    "schema": "boros.context-query/v1",
+    "schema": "bouro.context-query/v1",
     "roots": [
       {
-        "system": "boros",
+        "system": "bouro",
         "type": "experiment",
         "id": "EXP-0001",
         "version": "1"
@@ -31,7 +31,7 @@
   },
   "procedure": {
     "definition": {
-      "system": "boros",
+      "system": "bouro",
       "type": "procedure",
       "id": "PROC-0001",
       "version": "1"

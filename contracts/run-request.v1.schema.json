@@ -24,7 +24,7 @@
         { "type": "object", "required": ["version"] }
       ]
     },
-    "contextQuery": { "$ref": "boros-context-query.v1.schema.json" },
+    "contextQuery": { "$ref": "bouro-context-query.v1.schema.json" },
     "procedure": {
       "type": "object",
       "required": ["artifact", "runtime", "inputs", "permissionTier"],

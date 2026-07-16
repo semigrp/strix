@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { StaticBorosGateway } from "../src/adapters/boros.js";
+import { StaticBouroGateway } from "../src/adapters/bouro.js";
 import { auditRunArtifacts } from "../src/artifacts.js";
 import { exportFukuroNdjson } from "../src/adapters/fukuro.js";
 import { runCli } from "../src/cli.js";
@@ -29,7 +29,7 @@ test("receiver and producer contract fixtures validate", async () => {
     await readFile(join(contracts, "fixtures", "fukuro-telemetry-event.valid.json"), "utf8"),
   ) as unknown;
   const evidence = JSON.parse(
-    await readFile(join(contracts, "fixtures", "boros-register-evidence.valid.json"), "utf8"),
+    await readFile(join(contracts, "fixtures", "bouro-register-evidence.valid.json"), "utf8"),
   ) as unknown;
   assert.doesNotThrow(() => assertRunRequest(request));
   assert.doesNotThrow(() => assertTelemetryEvent(telemetry));
@@ -60,7 +60,7 @@ test("golden path traces pinned inputs, gates, outputs, telemetry, and Evidence"
     assert.equal(store.tasks[run.task.id]?.status, "succeeded");
     assert.equal(fixture.gateway.evidenceCommands.length, 1);
     assert.equal(fixture.gateway.evidenceCommands[0]?.sourceEventId, run.result?.terminalEvent.id);
-    assert.equal(Object.values(store.borosOutbox)[0]?.status, "delivered");
+    assert.equal(Object.values(store.bouroOutbox)[0]?.status, "delivered");
 
     const first = exportFukuroNdjson(store, { runId: run.id });
     const second = exportFukuroNdjson(store, { runId: run.id });
@@ -72,7 +72,7 @@ test("golden path traces pinned inputs, gates, outputs, telemetry, and Evidence"
     assert.ok(events.every((event) => !JSON.stringify(event).includes("hello from test")));
     assert.equal(new Set(events.map((event) => event.sourceEventId)).size, events.length);
 
-    const replay = await fixture.engine.flushBorosOutbox();
+    const replay = await fixture.engine.flushBouroOutbox();
     assert.deepEqual(replay, { attempted: 0, delivered: 0, pending: 0 });
     assert.equal(fixture.gateway.evidenceCommands.length, 1);
   } finally {
@@ -99,22 +99,22 @@ test("a failed first Attempt retries the same pinned ProcedureArtifact", async (
   }
 });
 
-test("Fukuro and Boros delivery outages never roll back a completed Run", async () => {
+test("Fukuro and Bouro delivery outages never roll back a completed Run", async () => {
   const fixture = await createFixture({ procedure: successProcedure() });
   fixture.gateway.failEvidence = true;
   try {
     const run = await fixture.engine.run(fixture.request);
     assert.equal(run.status, "succeeded");
     let store = await fixture.repository.load();
-    assert.equal(Object.values(store.borosOutbox)[0]?.status, "pending");
+    assert.equal(Object.values(store.bouroOutbox)[0]?.status, "pending");
     const exportedWhileOffline = exportFukuroNdjson(store, { runId: run.id });
     assert.ok(exportedWhileOffline.includes('"kind":"loop_end"'));
 
     fixture.gateway.failEvidence = false;
-    const flushed = await fixture.engine.flushBorosOutbox();
+    const flushed = await fixture.engine.flushBouroOutbox();
     assert.deepEqual(flushed, { attempted: 1, delivered: 1, pending: 0 });
     store = await fixture.repository.load();
-    assert.equal(Object.values(store.borosOutbox)[0]?.status, "delivered");
+    assert.equal(Object.values(store.bouroOutbox)[0]?.status, "delivered");
     assert.equal(fixture.gateway.evidenceCommands.length, 2);
     assert.deepEqual(fixture.gateway.evidenceCommands[0], fixture.gateway.evidenceCommands[1]);
     assert.equal(validateStore(store).ok, true);
@@ -256,7 +256,7 @@ test("doctor reports a structurally corrupt v1 store without crashing", async ()
 type Fixture = {
   directory: string;
   repository: JsonStoreRepository;
-  gateway: StaticBorosGateway;
+  gateway: StaticBouroGateway;
   engine: OuroEngine;
   request: RunRequestV1;
   cleanup(): Promise<void>;
@@ -275,9 +275,9 @@ async function createFixture(options: {
   await writeFile(procedurePath, options.procedure, "utf8");
   const query = fixtureQuery();
   const bundle = fixtureBundle(query);
-  const gateway = new StaticBorosGateway(bundle);
+  const gateway = new StaticBouroGateway(bundle);
   const repository = new JsonStoreRepository(join(directory, ".ouro", "store.json"));
-  const engine = new OuroEngine({ repository, boros: gateway });
+  const engine = new OuroEngine({ repository, bouro: gateway });
   const request: RunRequestV1 = {
     schema: "ouro.run-request/v1",
     work: {
@@ -287,7 +287,7 @@ async function createFixture(options: {
     experiment: query.roots[0]!,
     contextQuery: query,
     procedure: {
-      definition: { system: "boros", type: "procedure", id: "PROC-TEST", version: "1" },
+      definition: { system: "bouro", type: "procedure", id: "PROC-TEST", version: "1" },
       artifact: {
         system: "github",
         type: "file",
@@ -326,8 +326,8 @@ async function createFixture(options: {
 
 function fixtureQuery(): ContextQueryV1 {
   return {
-    schema: "boros.context-query/v1",
-    roots: [{ system: "boros", type: "experiment", id: "EXP-TEST", version: "1" }],
+    schema: "bouro.context-query/v1",
+    roots: [{ system: "bouro", type: "experiment", id: "EXP-TEST", version: "1" }],
     purpose: "run the Ouro test fixture",
     tokenBudget: 2_000,
     maxResources: 10,
@@ -337,9 +337,9 @@ function fixtureQuery(): ContextQueryV1 {
 
 function fixtureBundle(query: ContextQueryV1): ContextBundleV1 {
   const ontology = {
-    system: "boros",
+    system: "bouro",
     type: "ontology_release",
-    id: "boros-core",
+    id: "bouro-core",
     version: "1.0.0",
     digest: digestJson("fixture ontology"),
   } as const;
@@ -353,7 +353,7 @@ function fixtureBundle(query: ContextQueryV1): ContextBundleV1 {
   };
   const digest = digestJson(payload);
   return {
-    schema: "boros.context-bundle/v1",
+    schema: "bouro.context-bundle/v1",
     id: `CTX-${digest.slice(7, 23).toUpperCase()}`,
     createdAt: "2026-07-14T00:00:00.000Z",
     ...payload,

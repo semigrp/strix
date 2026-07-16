@@ -207,7 +207,7 @@ export function validateStore(store: OuroStore): ValidationResult {
     "runs",
     "attempts",
     "gates",
-    "borosOutbox",
+    "bouroOutbox",
   ]) {
     if (!isRecord(raw[name])) errors.push(`Store field ${name} must be an object`);
   }
@@ -340,8 +340,8 @@ function validateEventChain(store: OuroStore, errors: string[]): void {
 
 function validateOutbox(store: OuroStore, errors: string[]): void {
   const eventIds = new Set(store.events.map((event) => event.id));
-  for (const [id, entry] of Object.entries(store.borosOutbox)) {
-    if (id !== entry.id) errors.push(`Boros outbox key mismatch: ${id}`);
+  for (const [id, entry] of Object.entries(store.bouroOutbox)) {
+    if (id !== entry.id) errors.push(`Bouro outbox key mismatch: ${id}`);
     if (!eventIds.has(entry.command.sourceEventId)) {
       errors.push(`${id} references missing source event ${entry.command.sourceEventId}`);
     }

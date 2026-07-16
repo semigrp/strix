@@ -11,26 +11,26 @@ import {
 } from "../schema.js";
 import { assertPinnedRef } from "../validation.js";
 
-export interface BorosGateway {
+export interface BouroGateway {
   queryContext(query: ContextQueryV1): Promise<ContextBundleV1>;
   registerEvidence(command: RegisterEvidenceCommandV1): Promise<ResourceRefV1>;
 }
 
-export type BorosCliConfig = {
+export type BouroCliConfig = {
   bin: string;
   vault?: string;
 };
 
-export class BorosCliGateway implements BorosGateway {
-  readonly config: BorosCliConfig;
+export class BouroCliGateway implements BouroGateway {
+  readonly config: BouroCliConfig;
 
-  constructor(config: BorosCliConfig) {
+  constructor(config: BouroCliConfig) {
     this.config = config;
   }
 
   async queryContext(query: ContextQueryV1): Promise<ContextBundleV1> {
     if (query.includeKinds?.length) {
-      throw new Error("The current Boros CLI does not expose includeKinds; omit it for CLI transport");
+      throw new Error("The current Bouro CLI does not expose includeKinds; omit it for CLI transport");
     }
     const args = ["context"];
     for (const root of query.roots) args.push("--root", root.id);
@@ -52,7 +52,7 @@ export class BorosCliGateway implements BorosGateway {
       );
       if (!actual || actual.version !== expected.version) {
         throw new Error(
-          `Boros resolved a different root revision for ${expected.id}: ${actual?.version ?? "missing"}`,
+          `Bouro resolved a different root revision for ${expected.id}: ${actual?.version ?? "missing"}`,
         );
       }
     }
@@ -60,7 +60,7 @@ export class BorosCliGateway implements BorosGateway {
   }
 
   async registerEvidence(command: RegisterEvidenceCommandV1): Promise<ResourceRefV1> {
-    const directory = await mkdtemp(join(tmpdir(), "ouro-boros-command-"));
+    const directory = await mkdtemp(join(tmpdir(), "ouro-bouro-command-"));
     try {
       const input = join(directory, "register-evidence.json");
       await writeFile(input, `${JSON.stringify(command, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -75,10 +75,10 @@ export class BorosCliGateway implements BorosGateway {
         typeof result.evidence.id !== "string" ||
         typeof result.evidence.version !== "string"
       ) {
-        throw new Error("Boros returned an invalid Evidence registration response");
+        throw new Error("Bouro returned an invalid Evidence registration response");
       }
       return {
-        system: "boros",
+        system: "bouro",
         type: typeof result.evidence.kind === "string" ? result.evidence.kind : "evidence",
         id: result.evidence.id,
         version: result.evidence.version,
@@ -98,17 +98,17 @@ export class BorosCliGateway implements BorosGateway {
     const commandArgs = isJavaScript ? [this.config.bin, ...args] : args;
     const result = await spawnJson(command, commandArgs);
     if (result.exitCode !== 0) {
-      throw new Error(`Boros CLI failed with exit ${result.exitCode}: ${result.stderr.trim()}`);
+      throw new Error(`Bouro CLI failed with exit ${result.exitCode}: ${result.stderr.trim()}`);
     }
     try {
       return JSON.parse(result.stdout) as unknown;
     } catch {
-      throw new Error("Boros CLI returned non-JSON output");
+      throw new Error("Bouro CLI returned non-JSON output");
     }
   }
 }
 
-export class StaticBorosGateway implements BorosGateway {
+export class StaticBouroGateway implements BouroGateway {
   readonly bundle: ContextBundleV1;
   readonly contextQueries: ContextQueryV1[] = [];
   readonly evidenceCommands: RegisterEvidenceCommandV1[] = [];
@@ -125,9 +125,9 @@ export class StaticBorosGateway implements BorosGateway {
 
   async registerEvidence(command: RegisterEvidenceCommandV1): Promise<ResourceRefV1> {
     this.evidenceCommands.push(structuredClone(command));
-    if (this.failEvidence) throw new Error("Fixture Boros is unavailable");
+    if (this.failEvidence) throw new Error("Fixture Bouro is unavailable");
     return {
-      system: "boros",
+      system: "bouro",
       type: "evidence",
       id: `EVD-FIXTURE-${String(this.evidenceCommands.length).padStart(4, "0")}`,
       version: "1",
@@ -136,21 +136,21 @@ export class StaticBorosGateway implements BorosGateway {
 }
 
 function assertContextBundle(bundle: ContextBundleV1): void {
-  if (bundle.schema !== "boros.context-bundle/v1" || !bundle.id || !bundle.digest) {
-    throw new Error("Boros returned an invalid ContextBundle");
+  if (bundle.schema !== "bouro.context-bundle/v1" || !bundle.id || !bundle.digest) {
+    throw new Error("Bouro returned an invalid ContextBundle");
   }
   assertPinnedRef(
     {
-      system: "boros",
+      system: "bouro",
       type: "context_bundle",
       id: bundle.id,
       version: "1",
       digest: bundle.digest,
     },
-    "Boros ContextBundle",
+    "Bouro ContextBundle",
     true,
   );
-  assertPinnedRef(bundle.ontology, "Boros OntologyRelease", true);
+  assertPinnedRef(bundle.ontology, "Bouro OntologyRelease", true);
   for (const selection of bundle.selections) {
     assertPinnedRef(selection.resource, `Context selection ${selection.resource.id}`);
   }
@@ -158,7 +158,7 @@ function assertContextBundle(bundle: ContextBundleV1): void {
 
 function unwrapResult(value: unknown): unknown {
   if (!value || typeof value !== "object" || !("result" in value)) {
-    throw new Error("Boros CLI response is missing result");
+    throw new Error("Bouro CLI response is missing result");
   }
   return (value as { result: unknown }).result;
 }

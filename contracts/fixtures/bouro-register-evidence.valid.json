@@ -1,5 +1,5 @@
 {
-  "schema": "boros.register-evidence/v1",
+  "schema": "bouro.register-evidence/v1",
   "source": "ouro",
   "sourceEventId": "EVT-000007",
   "evidence": {
@@ -14,7 +14,7 @@
     },
     "derivedFrom": [
       {
-        "system": "boros",
+        "system": "bouro",
         "type": "context_bundle",
         "id": "CTX-EXAMPLE",
         "version": "1",

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { BorosCliGateway, StaticBorosGateway } from "./adapters/boros.js";
+import { BouroCliGateway, StaticBouroGateway } from "./adapters/bouro.js";
 import { auditRunArtifacts } from "./artifacts.js";
 import { exportFukuroNdjson } from "./adapters/fukuro.js";
 import { OuroEngine } from "./engine.js";
@@ -24,8 +24,8 @@ export async function runCli(argv: string[], io: CliIo): Promise<void> {
   if (command === "events" && argv[1] === "export") {
     return eventsExport(parseArgs(argv.slice(2)), io);
   }
-  if (command === "boros" && argv[1] === "flush") {
-    return borosFlush(parseArgs(argv.slice(2)), io);
+  if (command === "bouro" && argv[1] === "flush") {
+    return bouroFlush(parseArgs(argv.slice(2)), io);
   }
   const options = parseArgs(argv.slice(1));
   switch (command) {
@@ -96,7 +96,7 @@ async function show(options: Options, io: CliIo): Promise<void> {
     events: store.events.filter(
       (event) => event.subject.id === id || event.refs.some((reference) => reference.id === id),
     ),
-    outbox: Object.values(store.borosOutbox).filter(
+    outbox: Object.values(store.bouroOutbox).filter(
       (entry) => entry.command.evidence.generatedBy.id === id,
     ),
   });
@@ -111,8 +111,8 @@ async function run(options: Options, io: CliIo): Promise<void> {
   if (result.status !== "succeeded") process.exitCode = 1;
 }
 
-async function borosFlush(options: Options, io: CliIo): Promise<void> {
-  const result = await engineFor(options, io).flushBorosOutbox();
+async function bouroFlush(options: Options, io: CliIo): Promise<void> {
+  const result = await engineFor(options, io).flushBouroOutbox();
   writeJson(io.stdout, { ok: result.pending === 0, ...result });
   if (result.pending > 0) process.exitCode = 1;
 }
@@ -148,17 +148,17 @@ async function demo(options: Options, io: CliIo): Promise<void> {
   ].join("\n");
   await writeFile(procedure, source, "utf8");
   const query: ContextQueryV1 = {
-    schema: "boros.context-query/v1",
-    roots: [{ system: "boros", type: "experiment", id: "EXP-DEMO", version: "1" }],
+    schema: "bouro.context-query/v1",
+    roots: [{ system: "bouro", type: "experiment", id: "EXP-DEMO", version: "1" }],
     purpose: "execute the Ouro golden path",
     tokenBudget: 2_000,
     maxResources: 10,
     allowedSensitivities: ["public", "internal"],
   };
   const ontology = {
-    system: "boros",
+    system: "bouro",
     type: "ontology_release",
-    id: "boros-core",
+    id: "bouro-core",
     version: "1.0.0",
     digest: digestJson("ouro-demo-ontology"),
   } as const;
@@ -174,17 +174,17 @@ async function demo(options: Options, io: CliIo): Promise<void> {
     }),
   };
   const bundle: ContextBundleV1 = {
-    schema: "boros.context-bundle/v1",
+    schema: "bouro.context-bundle/v1",
     id: `CTX-${digestJson(contextPayload).slice(7, 23).toUpperCase()}`,
     createdAt: new Date().toISOString(),
     ...contextPayload,
     digest: digestJson(contextPayload),
   };
-  const gateway = new StaticBorosGateway(bundle);
+  const gateway = new StaticBouroGateway(bundle);
   const repository = repositoryFor(options, io);
   const engine = new OuroEngine({
     repository,
-    boros: gateway,
+    bouro: gateway,
     allowedPermissionTiers: ["inspect"],
   });
   const request: RunRequestV1 = {
@@ -196,7 +196,7 @@ async function demo(options: Options, io: CliIo): Promise<void> {
     experiment: query.roots[0]!,
     contextQuery: query,
     procedure: {
-      definition: { system: "boros", type: "procedure", id: "PROC-DEMO", version: "1" },
+      definition: { system: "bouro", type: "procedure", id: "PROC-DEMO", version: "1" },
       artifact: {
         system: "github",
         type: "file",
@@ -235,17 +235,17 @@ async function demo(options: Options, io: CliIo): Promise<void> {
 
 function engineFor(options: Options, io: CliIo): OuroEngine {
   const repository = repositoryFor(options, io);
-  const gateway = new BorosCliGateway({
-    bin: optionalString(options["boros-bin"]) ?? process.env.BOROS_BIN ?? "boros",
-    ...(optionalString(options["boros-vault"])
-      ? { vault: resolve(io.cwd, optionalString(options["boros-vault"])!) }
-      : process.env.BOROS_VAULT
-        ? { vault: process.env.BOROS_VAULT }
+  const gateway = new BouroCliGateway({
+    bin: optionalString(options["bouro-bin"]) ?? process.env.BOURO_BIN ?? "bouro",
+    ...(optionalString(options["bouro-vault"])
+      ? { vault: resolve(io.cwd, optionalString(options["bouro-vault"])!) }
+      : process.env.BOURO_VAULT
+        ? { vault: process.env.BOURO_VAULT }
         : {}),
   });
   return new OuroEngine({
     repository,
-    boros: gateway,
+    bouro: gateway,
     ...(optionalString(options["artifact-root"])
       ? { artifactRoot: resolve(io.cwd, optionalString(options["artifact-root"])!) }
       : {}),
@@ -291,9 +291,9 @@ function storeReport(store: Awaited<ReturnType<JsonStoreRepository["load"]>>): o
     gates: Object.keys(store.gates).length,
     events: store.events.length,
     eventChainHead: store.eventChainHead ?? null,
-    borosOutbox: {
-      pending: Object.values(store.borosOutbox).filter((entry) => entry.status === "pending").length,
-      delivered: Object.values(store.borosOutbox).filter((entry) => entry.status === "delivered").length,
+    bouroOutbox: {
+      pending: Object.values(store.bouroOutbox).filter((entry) => entry.status === "pending").length,
+      delivered: Object.values(store.bouroOutbox).filter((entry) => entry.status === "delivered").length,
     },
   };
 }
@@ -350,16 +350,16 @@ function help(io: CliIo): void {
   init [--store <path>]
   doctor | status [--store <path>]
   run --spec <ouro.run-request/v1.json> [--allow-tier <tier>]
-      [--boros-bin <path>] [--boros-vault <path>] [--store <path>]
+      [--bouro-bin <path>] [--bouro-vault <path>] [--store <path>]
   show --run <RUN-id> [--store <path>]
   events export --target fukuro [--since <EVT-id>] [--run <RUN-id>] [--out <path>]
-  boros flush [--boros-bin <path>] [--boros-vault <path>] [--store <path>]
+  bouro flush [--bouro-bin <path>] [--bouro-vault <path>] [--store <path>]
   demo [--store <path>]
 
 Permission tiers:
   inspect (allowed by default), workspace-write, external-write
 
 Environment:
-  BOROS_BIN, BOROS_VAULT
+  BOURO_BIN, BOURO_VAULT
 `);
 }

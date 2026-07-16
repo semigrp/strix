@@ -5,7 +5,7 @@ import {
   writeInputArtifact,
   writeOutputArtifact,
 } from "./artifacts.js";
-import type { BorosGateway } from "./adapters/boros.js";
+import type { BouroGateway } from "./adapters/bouro.js";
 import { LocalProcessExecutor, type ProcessExecutor, type ProcessResult } from "./executor.js";
 import {
   digestJson,
@@ -14,7 +14,7 @@ import {
   ref,
   resourceIdentity,
   type AttemptRecord,
-  type BorosOutboxEntry,
+  type BouroOutboxEntry,
   type ContextBundleV1,
   type GateResult,
   type GateSpec,
@@ -38,7 +38,7 @@ import { assertEvidenceCommand, assertPinnedRef, assertRunRequest } from "./vali
 
 export type EngineConfig = {
   repository: JsonStoreRepository;
-  boros: BorosGateway;
+  bouro: BouroGateway;
   executor?: ProcessExecutor;
   artifactRoot?: string;
   allowedPermissionTiers?: PermissionTier[];
@@ -52,14 +52,14 @@ export type FlushResult = {
 
 export class OuroEngine {
   readonly repository: JsonStoreRepository;
-  readonly boros: BorosGateway;
+  readonly bouro: BouroGateway;
   readonly executor: ProcessExecutor;
   readonly artifactRoot: string;
   readonly allowedPermissionTiers: Set<PermissionTier>;
 
   constructor(config: EngineConfig) {
     this.repository = config.repository;
-    this.boros = config.boros;
+    this.bouro = config.bouro;
     this.executor = config.executor ?? new LocalProcessExecutor();
     this.artifactRoot = config.artifactRoot
       ? resolve(config.artifactRoot)
@@ -83,7 +83,7 @@ export class OuroEngine {
     return this.repository.withWriterLock(async () => {
       const store = await this.repository.load();
       assertValidStore(store);
-      const bundle = await this.boros.queryContext(request.contextQuery);
+      const bundle = await this.bouro.queryContext(request.contextQuery);
       assertContextBundleMatches(bundle, request);
 
       const projected = projectWork(store, request.work);
@@ -104,7 +104,7 @@ export class OuroEngine {
       const taskReference = ref("task", taskId);
       const runReference = ref("run", runId);
       const contextReference: ResourceRefV1 = {
-        system: "boros",
+        system: "bouro",
         type: "context_bundle",
         id: bundle.id,
         version: "1",
@@ -351,11 +351,11 @@ export class OuroEngine {
       };
       if (shouldRegisterEvidence(request, succeeded)) {
         const commandId = nextId(store, "CMD");
-        const entry: BorosOutboxEntry = {
-          schema: "ouro.boros-outbox/v1",
+        const entry: BouroOutboxEntry = {
+          schema: "ouro.bouro-outbox/v1",
           id: commandId,
           command: {
-            schema: "boros.register-evidence/v1",
+            schema: "bouro.register-evidence/v1",
             source: "ouro",
             sourceEventId: terminalEvent.id,
             evidence: {
@@ -379,7 +379,7 @@ export class OuroEngine {
           createdAt: completedAt,
         };
         assertEvidenceCommand(entry.command);
-        store.borosOutbox[commandId] = entry;
+        store.bouroOutbox[commandId] = entry;
       }
       await this.repository.save(store);
       await this.flushLocked(store);
@@ -387,7 +387,7 @@ export class OuroEngine {
     });
   }
 
-  async flushBorosOutbox(): Promise<FlushResult> {
+  async flushBouroOutbox(): Promise<FlushResult> {
     return this.repository.withWriterLock(async () => {
       const store = await this.repository.load();
       assertValidStore(store);
@@ -398,15 +398,15 @@ export class OuroEngine {
   private async flushLocked(store: OuroStore): Promise<FlushResult> {
     let attempted = 0;
     let delivered = 0;
-    for (const entry of Object.values(store.borosOutbox).filter((item) => item.status === "pending")) {
+    for (const entry of Object.values(store.bouroOutbox).filter((item) => item.status === "pending")) {
       assertEvidenceCommand(entry.command);
       attempted += 1;
       entry.attempts += 1;
       entry.lastAttemptAt = nowIso();
       const runReference = entry.command.evidence.generatedBy;
       try {
-        const evidence = await this.boros.registerEvidence(entry.command);
-        assertPinnedRef(evidence, "Registered Boros Evidence");
+        const evidence = await this.bouro.registerEvidence(entry.command);
+        assertPinnedRef(evidence, "Registered Bouro Evidence");
         entry.status = "delivered";
         entry.deliveredAt = nowIso();
         entry.result = evidence;
@@ -431,16 +431,16 @@ export class OuroEngine {
     return {
       attempted,
       delivered,
-      pending: Object.values(store.borosOutbox).filter((entry) => entry.status === "pending").length,
+      pending: Object.values(store.bouroOutbox).filter((entry) => entry.status === "pending").length,
     };
   }
 }
 
 function assertContextBundleMatches(bundle: ContextBundleV1, request: RunRequestV1): void {
-  if (bundle.schema !== "boros.context-bundle/v1") throw new Error("Invalid Boros ContextBundle schema");
+  if (bundle.schema !== "bouro.context-bundle/v1") throw new Error("Invalid Bouro ContextBundle schema");
   if (!Number.isFinite(Date.parse(bundle.createdAt))) throw new Error("ContextBundle has invalid createdAt");
   if (digestJson(contextBundleDigestPayload(bundle)) !== bundle.digest) {
-    throw new Error("Boros ContextBundle digest mismatch");
+    throw new Error("Bouro ContextBundle digest mismatch");
   }
   assertPinnedRef(bundle.ontology, "ContextBundle ontology", true);
   for (const selection of bundle.selections) {

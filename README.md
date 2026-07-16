@@ -7,7 +7,7 @@ external Work item into a pinned, inspectable execution path:
 Work -> Plan -> Task -> ContextBundle -> ProcedureBinding -> Run -> Attempt -> Gate -> Result
 ```
 
-Ouro owns execution state. [Boros](https://github.com/semigrp/bouro) owns knowledge meaning,
+Ouro owns execution state. [Bouro](https://github.com/semigrp/bouro) owns knowledge meaning,
 Evidence, and Decisions. [Fukuro](https://github.com/semigrp/fukuro) owns telemetry analysis,
 baselines, and Findings. Repositories own executable artifact bytes, while issue trackers own issue
 and pull-request state.
@@ -19,11 +19,11 @@ and pull-request state.
 | Source, prompts, workflows, procedure bytes | Repository or artifact store |
 | Issue and pull-request state | External issue tracker |
 | Work projection, Plan, Task, Run, Attempt, Gate, workspace binding | Ouro |
-| Concept, Claim, Question, Hypothesis, ExperimentDefinition | Boros |
-| ProcedureDefinition, Evidence meaning and Decision | Boros |
+| Concept, Claim, Question, Hypothesis, ExperimentDefinition | Bouro |
+| ProcedureDefinition, Evidence meaning and Decision | Bouro |
 | Telemetry ingestion, baseline, Finding, improvement effect | Fukuro |
 
-Ouro never writes another system's database or vault. The Boros integration uses explicit CLI
+Ouro never writes another system's database or vault. The Bouro integration uses explicit CLI
 query/command calls. The Fukuro integration is deterministic NDJSON export from Ouro's event log.
 There is no shared package, integration repository, event broker, or distributed transaction.
 
@@ -31,7 +31,7 @@ See [ADR 0001](docs/adr/0001-ouro-boundary-and-execution.md).
 
 ## Guarantees
 
-- Every Run pins the Boros Experiment, ProcedureDefinition, ContextBundle, ontology release, and
+- Every Run pins the Bouro Experiment, ProcedureDefinition, ContextBundle, ontology release, and
   selected knowledge revisions used for execution.
 - A ProcedureArtifact requires a logical version, URI, and SHA-256 digest.
 - Verified procedure bytes are copied to a Run-owned snapshot before execution; the snapshot is
@@ -43,8 +43,8 @@ See [ADR 0001](docs/adr/0001-ouro-boundary-and-execution.md).
 - Execution events form an append-only SHA-256 chain.
 - The event log is also the Fukuro outbox. Re-export preserves each Ouro event ID as
   `sourceEventId`.
-- Evidence registration uses a durable Boros outbox. A completed Run stays complete when delivery
-  fails, and replay uses the same Boros idempotency key.
+- Evidence registration uses a durable Bouro outbox. A completed Run stays complete when delivery
+  fails, and replay uses the same Bouro idempotency key.
 - Telemetry is field-whitelisted and strips all ResourceRef URIs. It never includes environment
   values, input values, stdout, stderr, prompts, or credentials.
 - `doctor` verifies store structure, event-chain integrity, ContextBundle digest, reference
@@ -73,11 +73,11 @@ Create an `ouro.run-request/v1` document using
 shape reference. Replace all example ResourceRefs, paths, versions, and digests with real pinned
 values.
 
-Configure the Boros receiver and execute:
+Configure the Bouro receiver and execute:
 
 ```bash
-export BOROS_BIN=/absolute/path/to/boros/dist/bin/boros.js
-export BOROS_VAULT=/absolute/path/to/boros/vault/store.json
+export BOURO_BIN=/absolute/path/to/bouro/dist/bin/bouro.js
+export BOURO_VAULT=/absolute/path/to/bouro/vault/store.json
 
 node dist/bin/ouro.js run --spec ./run-request.json
 node dist/bin/ouro.js show --run RUN-0001
@@ -105,10 +105,10 @@ node dist/bin/ouro.js events export --target fukuro > ouro-events.ndjson
 node dist/bin/ouro.js events export --target fukuro --since EVT-000010
 ```
 
-Retry pending Boros Evidence commands:
+Retry pending Bouro Evidence commands:
 
 ```bash
-node dist/bin/ouro.js boros flush
+node dist/bin/ouro.js bouro flush
 ```
 
 Fukuro 0.6.0 does not yet publish `fukuro.telemetry-event/v1` ingest. Ouro vendors the confirmed
@@ -125,7 +125,7 @@ ouro status
 ouro run --spec <run-request.json>
 ouro show --run <RUN-id>
 ouro events export --target fukuro [--since <EVT-id>] [--run <RUN-id>]
-ouro boros flush
+ouro bouro flush
 ouro demo
 ```
 
@@ -133,11 +133,11 @@ ouro demo
 
 - `contracts/run-request.v1.schema.json` is owned by Ouro.
 - `contracts/resource-ref.v1.schema.json` embeds the common identity convention.
-- `contracts/boros-context-query.v1.schema.json` is a producer-side Boros snapshot.
-- `contracts/boros-register-evidence.v1.schema.json` is a producer-side Boros snapshot.
+- `contracts/bouro-context-query.v1.schema.json` is a producer-side Bouro snapshot.
+- `contracts/bouro-register-evidence.v1.schema.json` is a producer-side Bouro snapshot.
 - `contracts/fukuro-telemetry-event.v1.schema.json` is the pending Fukuro receiver snapshot.
 
-CI checks the Boros snapshots against a separate checkout of the actual Boros repository and runs
+CI checks the Bouro snapshots against a separate checkout of the actual Bouro repository and runs
 a real cross-repository Context query, Ouro process, Evidence registration, and idempotent replay.
 
 ## Current scope

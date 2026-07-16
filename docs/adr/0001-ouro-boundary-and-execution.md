@@ -5,7 +5,7 @@
 
 ## Context
 
-The agent loop is split into three bounded contexts. Boros owns durable knowledge meaning,
+The agent loop is split into three bounded contexts. Bouro owns durable knowledge meaning,
 Evidence, and Decisions. Fukuro owns telemetry analysis, baselines, and Findings. Repositories and
 artifact stores own executable bytes, while issue trackers own issue and pull-request state. Ouro
 needs to own the outbound execution path without becoming any of those systems.
@@ -29,15 +29,15 @@ the declared workspace, its SHA-256 digest is checked before any Run record is c
 process is launched without a shell. Permission tiers are explicit policy gates; they are not a
 claim of operating-system sandboxing.
 
-### Boros boundary
+### Bouro boundary
 
-Ouro queries Boros for a pinned ContextBundle before execution. Ouro stores the bundle reference,
+Ouro queries Bouro for a pinned ContextBundle before execution. Ouro stores the bundle reference,
 digest, ontology reference, query, and selected revisions as reproducibility inputs, not as a
-knowledge source of truth. Evidence registration is a Boros-owned command. Ouro records that
-command in a durable outbox keyed by the terminal execution event and may retry delivery. Boros
+knowledge source of truth. Evidence registration is a Bouro-owned command. Ouro records that
+command in a durable outbox keyed by the terminal execution event and may retry delivery. Bouro
 provides receiver-side idempotency.
 
-ExperimentDefinition and ProcedureDefinition remain Boros objects. Ouro stores only their pinned
+ExperimentDefinition and ProcedureDefinition remain Bouro objects. Ouro stores only their pinned
 ResourceRefs plus the run-specific ProcedureBinding.
 
 ### Fukuro boundary
@@ -65,7 +65,7 @@ during a Run; concurrent scheduling is intentionally deferred.
 ## Consequences
 
 Ouro can replay telemetry and Evidence delivery after downstream outages, and every completed Run
-can identify its Work projection, Plan, Task, Boros context and definitions, artifact commit and
+can identify its Work projection, Plan, Task, Bouro context and definitions, artifact commit and
 digest, workspace, input artifact, attempts, gates, and output artifacts. Raw output remains in the
 local run artifact directory and never enters telemetry.
 

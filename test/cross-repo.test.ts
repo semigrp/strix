@@ -6,25 +6,25 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { BorosCliGateway } from "../src/adapters/boros.js";
+import { BouroCliGateway } from "../src/adapters/bouro.js";
 import { exportFukuroNdjson } from "../src/adapters/fukuro.js";
 import { OuroEngine } from "../src/engine.js";
 import { digestBytes, type RunRequestV1 } from "../src/schema.js";
 import { JsonStoreRepository, validateStore } from "../src/store.js";
 
-const borosRoot = process.env.BOROS_ROOT;
+const bouroRoot = process.env.BOURO_ROOT;
 
 test(
-  "real Boros CLI completes Context query, Ouro Run, Evidence registration, and replay",
-  { skip: borosRoot ? false : "Set BOROS_ROOT to run the cross-repository fixture" },
+  "real Bouro CLI completes Context query, Ouro Run, Evidence registration, and replay",
+  { skip: bouroRoot ? false : "Set BOURO_ROOT to run the cross-repository fixture" },
   async () => {
-    const directory = await mkdtemp(join(tmpdir(), "ouro-boros-cross-repo-"));
+    const directory = await mkdtemp(join(tmpdir(), "ouro-bouro-cross-repo-"));
     try {
-      const borosBin = join(borosRoot!, "dist", "bin", "boros.js");
-      const borosVault = join(directory, "boros-store.json");
-      const demo = invokeBoros(borosBin, ["demo", "--vault", borosVault]);
+      const bouroBin = join(bouroRoot!, "dist", "bin", "bouro.js");
+      const bouroVault = join(directory, "bouro-store.json");
+      const demo = invokeBouro(bouroBin, ["demo", "--vault", bouroVault]);
       assert.equal(demo.status, 0, demo.stderr);
-      assertContractSnapshots(borosRoot!);
+      assertContractSnapshots(bouroRoot!);
 
       const workspace = join(directory, "workspace");
       await mkdir(workspace, { recursive: true });
@@ -41,17 +41,17 @@ test(
           source: { system: "github", type: "issue", id: "semigrp/ouro#e2e", version: "1" },
           title: "Cross-repository verification",
         },
-        experiment: { system: "boros", type: "experiment", id: "EXP-0001", version: "1" },
+        experiment: { system: "bouro", type: "experiment", id: "EXP-0001", version: "1" },
         contextQuery: {
-          schema: "boros.context-query/v1",
-          roots: [{ system: "boros", type: "experiment", id: "EXP-0001", version: "1" }],
+          schema: "bouro.context-query/v1",
+          roots: [{ system: "bouro", type: "experiment", id: "EXP-0001", version: "1" }],
           purpose: "run the Ouro cross-repository fixture",
           tokenBudget: 4_000,
           maxResources: 30,
           allowedSensitivities: ["public", "internal"],
         },
         procedure: {
-          definition: { system: "boros", type: "procedure", id: "PROC-0001", version: "1" },
+          definition: { system: "bouro", type: "procedure", id: "PROC-0001", version: "1" },
           artifact: {
             system: "github",
             type: "file",
@@ -62,7 +62,7 @@ test(
           },
           runtime: "node",
           args: [],
-          inputs: { message: "real Boros integration" },
+          inputs: { message: "real Bouro integration" },
           permissionTier: "inspect",
           timeoutMs: 10_000,
           retries: 0,
@@ -79,21 +79,21 @@ test(
         },
       };
       const repository = new JsonStoreRepository(join(directory, "ouro-store.json"));
-      const gateway = new BorosCliGateway({ bin: borosBin, vault: borosVault });
-      const engine = new OuroEngine({ repository, boros: gateway });
+      const gateway = new BouroCliGateway({ bin: bouroBin, vault: bouroVault });
+      const engine = new OuroEngine({ repository, bouro: gateway });
       const run = await engine.run(request);
       assert.equal(run.status, "succeeded");
 
       const store = await repository.load();
       assert.equal(validateStore(store).ok, true);
-      const outbox = Object.values(store.borosOutbox)[0]!;
+      const outbox = Object.values(store.bouroOutbox)[0]!;
       assert.equal(outbox.status, "delivered");
       assert.equal(outbox.result?.id, "EVD-0002");
       const firstExport = exportFukuroNdjson(store, { runId: run.id });
       const secondExport = exportFukuroNdjson(store, { runId: run.id });
       assert.equal(firstExport, secondExport);
 
-      const show = invokeBoros(borosBin, ["show", "--id", "EVD-0002", "--vault", borosVault]);
+      const show = invokeBouro(bouroBin, ["show", "--id", "EVD-0002", "--vault", bouroVault]);
       assert.equal(show.status, 0, show.stderr);
       const evidence = JSON.parse(show.stdout) as {
         revision: { provenance: { generatedBy?: { id?: string }; derivedFrom: Array<{ id?: string }> } };
@@ -103,13 +103,13 @@ test(
 
       const commandPath = join(directory, "evidence-command.json");
       await writeFile(commandPath, `${JSON.stringify(outbox.command, null, 2)}\n`, "utf8");
-      const replay = invokeBoros(borosBin, [
+      const replay = invokeBouro(bouroBin, [
         "evidence",
         "register",
         "--input",
         commandPath,
         "--vault",
-        borosVault,
+        bouroVault,
       ]);
       assert.equal(replay.status, 0, replay.stderr);
       const replayed = JSON.parse(replay.stdout) as { result: { replayed: boolean; evidence: { id: string } } };
@@ -121,7 +121,7 @@ test(
   },
 );
 
-function invokeBoros(bin: string, args: string[]): SpawnSyncReturns<string> {
+function invokeBouro(bin: string, args: string[]): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [bin, ...args], { encoding: "utf8" });
 }
 
@@ -129,13 +129,13 @@ function assertContractSnapshots(root: string): void {
   const ouroContracts = fileURLToPath(new URL("../../contracts/", import.meta.url));
   const pairs = [
     ["resource-ref.v1.schema.json", "resource-ref.v1.schema.json"],
-    ["boros-context-query.v1.schema.json", "context-query.v1.schema.json"],
-    ["boros-register-evidence.v1.schema.json", "register-evidence.v1.schema.json"],
+    ["bouro-context-query.v1.schema.json", "context-query.v1.schema.json"],
+    ["bouro-register-evidence.v1.schema.json", "register-evidence.v1.schema.json"],
   ] as const;
-  for (const [ouroName, borosName] of pairs) {
+  for (const [ouroName, bouroName] of pairs) {
     const ouro = normalizedContract(readJson(join(ouroContracts, ouroName)));
-    const boros = normalizedContract(readJson(join(root, "contracts", borosName)));
-    assert.deepEqual(ouro, boros, `${ouroName} drifted from Boros receiver contract`);
+    const bouro = normalizedContract(readJson(join(root, "contracts", bouroName)));
+    assert.deepEqual(ouro, bouro, `${ouroName} drifted from Bouro receiver contract`);
   }
 }
 

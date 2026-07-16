@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://semigrp.dev/ouro/contracts/boros-context-query.v1.schema.json",
-  "title": "Vendored Boros ContextQueryV1",
+  "$id": "https://semigrp.dev/ouro/contracts/bouro-context-query.v1.schema.json",
+  "title": "Vendored Bouro ContextQueryV1",
   "type": "object",
   "required": ["schema", "roots", "purpose"],
   "properties": {
-    "schema": { "const": "boros.context-query/v1" },
+    "schema": { "const": "bouro.context-query/v1" },
     "roots": {
       "type": "array",
       "minItems": 1,
