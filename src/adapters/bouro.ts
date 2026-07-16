@@ -163,7 +163,7 @@ function unwrapResult(value: unknown): unknown {
   return (value as { result: unknown }).result;
 }
 
-async function spawnJson(
+export async function spawnJson(
   command: string,
   args: string[],
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {

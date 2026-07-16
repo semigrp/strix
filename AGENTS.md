@@ -69,6 +69,8 @@ quality gates as a pinned Run with Evidence delivery and Fukuro export.
 ouro init | doctor | status [--store <path>]
 ouro run --spec <run-request.json> [--allow-tier workspace-write]
 ouro show --run RUN-n
+ouro prepare --work "owner/repo#123" --title "repo gates" --workspace /abs/target \
+  --commands '[["npx","tsc"],["npm","test"]]'   # find-or-create Bouro chain, save .ouro/requests/<slug>.json
 ouro events export --target fukuro [--since EVT-n] [--run RUN-n]
 ouro bouro flush
 node examples/quality-gate/make-run-request.mjs --work "owner/repo#123" \

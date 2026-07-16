@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { BouroCliGateway, StaticBouroGateway } from "./adapters/bouro.js";
+import { BouroCliGateway, StaticBouroGateway, spawnJson } from "./adapters/bouro.js";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { auditRunArtifacts } from "./artifacts.js";
 import { exportFukuroNdjson } from "./adapters/fukuro.js";
 import { OuroEngine } from "./engine.js";
@@ -41,11 +43,152 @@ export async function runCli(argv: string[], io: CliIo): Promise<void> {
       return run(options, io);
     case "demo":
       return demo(options, io);
+    case "prepare":
+      return prepare(options, io);
     case "help":
       return help(io);
     default:
       throw new Error(`Unknown command: ${command}\nRun ouro help.`);
   }
+}
+
+/**
+ * prepare: go from a plan step to a runnable, replayable request in one call.
+ * Knowledge stays where it belongs — the chain (claim → question → hypothesis →
+ * experiment → procedure) is find-or-created in Bouro via its CLI (`bouro find`
+ * makes this idempotent; Ouro never reads another system's store file). The
+ * procedure artifact is pinned from the workspace (HEAD commit + sha256), and
+ * the generated ouro.run-request/v1 is saved locally under .ouro/requests/ so
+ * the same request can be run again later.
+ */
+async function prepare(options: Options, io: CliIo): Promise<void> {
+  const work = requiredString(options.work, "work");
+  const title = requiredString(options.title, "title");
+  const workspace = resolve(io.cwd, requiredString(options.workspace, "workspace"));
+  const commands = JSON.parse(requiredString(options.commands, "commands")) as unknown;
+  const ownerRepo = work.match(/^([^#]+)#(.+)$/)?.[1];
+  if (!ownerRepo) throw new Error('prepare: --work must look like "owner/repo#123"');
+
+  const bin = optionalString(options["bouro-bin"]) ?? process.env.BOURO_BIN ?? "bouro";
+  const vault = optionalString(options["bouro-vault"]) ?? process.env.BOURO_VAULT;
+  const bouro = async (args: string[]): Promise<Record<string, unknown>> => {
+    const withVault = vault ? [...args, "--vault", vault] : args;
+    const isJs = bin.endsWith(".js") || bin.endsWith(".mjs");
+    const result = await spawnJson(isJs ? process.execPath : bin, isJs ? [bin, ...withVault] : withVault);
+    if (result.exitCode !== 0) {
+      throw new Error(`Bouro CLI failed with exit ${result.exitCode}: ${result.stderr.trim()}`);
+    }
+    return JSON.parse(result.stdout) as Record<string, unknown>;
+  };
+  const findOrCreate = async (kind: string, createArgs: string[]): Promise<string> => {
+    const found = await bouro(["find", "--kind", kind, "--title", title]);
+    if (found.found === true) {
+      const revision = found.revision as { id: string };
+      return revision.id;
+    }
+    const created = await bouro(createArgs);
+    const result = created.result as { id: string };
+    return result.id;
+  };
+
+  const questionText =
+    optionalString(options.question) ?? `Does "${title}" hold for the workspace HEAD?`;
+  const closureRule =
+    optionalString(options["closure-rule"]) ?? "An Ouro run's exit_code gate decides, per run.";
+  const procedurePathRel = optionalString(options["procedure-path"]) ?? "procedures/quality-gate.mjs";
+
+  const claim = await findOrCreate("claim", [
+    "claim", "--title", title,
+    "--statement", `${title}: every declared gate command exiting 0 defines success.`,
+  ]);
+  const question = await findOrCreate("question", [
+    "question", "--title", title, "--question", questionText, "--closure-rule", closureRule,
+  ]);
+  const hypothesis = await findOrCreate("hypothesis", [
+    "hypothesis", "--title", title, "--claim", claim, "--question", question,
+    "--closes-when", "Each run's gate result is recorded as Evidence.",
+  ]);
+  const experiment = await findOrCreate("experiment", [
+    "experiment", "--title", title, "--question", question, "--hypothesis", hypothesis,
+    "--success", "Every declared command exits 0 (single exit_code gate).",
+  ]);
+  const procedureId = await findOrCreate("procedure", [
+    "procedure", "--title", title,
+    "--purpose", "Run the declared command list in the workspace; stop at the first failure.",
+    "--implementation-uri", procedurePathRel, "--implementation-version", "pinned-per-run",
+  ]);
+
+  const procedurePath = resolve(workspace, procedurePathRel);
+  if (!procedurePath.startsWith(workspace)) {
+    throw new Error("prepare: --procedure-path must stay inside the workspace");
+  }
+  const bytes = await readFile(procedurePath);
+  const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const git = (args: string[]): string =>
+    execFileSync("git", ["-C", workspace, ...args], { encoding: "utf8" }).trim();
+  const commit = git(["rev-parse", "HEAD"]);
+  const remote = git(["remote", "get-url", "origin"]).replace(/^.*[:/]([^/]+\/[^/]+?)(\.git)?$/, "$1");
+
+  const request = {
+    schema: "ouro.run-request/v1",
+    work: {
+      source: { system: "github", type: "issue", id: work, version: `requested:${commit}` },
+      title,
+    },
+    experiment: { system: "bouro", type: "experiment", id: experiment, version: "1" },
+    contextQuery: {
+      schema: "bouro.context-query/v1",
+      roots: [{ system: "bouro", type: "experiment", id: experiment, version: "1" }],
+      purpose: "run the declared gates against the workspace HEAD",
+      tokenBudget: 4000,
+      allowedSensitivities: ["public", "internal"],
+    },
+    procedure: {
+      definition: { system: "bouro", type: "procedure", id: procedureId, version: "1" },
+      artifact: {
+        system: "github",
+        type: "file",
+        id: `${remote}:${procedurePathRel}`,
+        version: commit,
+        uri: procedurePath,
+        digest,
+      },
+      runtime: "node",
+      args: [],
+      inputs: { commands },
+      permissionTier: optionalString(options.tier) ?? "workspace-write",
+      timeoutMs: Number(optionalString(options["timeout-ms"]) ?? "600000"),
+      retries: 0,
+      environment: { inherit: ["PATH", "HOME"] },
+    },
+    workspace: {
+      ref: {
+        system: "ouro",
+        type: "workspace",
+        id: `WS-${ownerRepo.replace(/\W+/g, "-")}`,
+        version: "1",
+      },
+      path: workspace,
+    },
+    gates: [{ id: "exit-zero", type: "exit_code", expected: 0 }],
+    evidence: {
+      when: "success",
+      title: `Gates passed: ${title}`,
+      observation: "Every declared command exited 0 under the pinned procedure.",
+    },
+  };
+
+  const slug = work.replace(/\W+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  const out = resolve(io.cwd, optionalString(options.out) ?? resolve(io.cwd, ".ouro", "requests", `${slug}.json`));
+  await mkdir(resolve(out, ".."), { recursive: true });
+  await writeFile(out, `${JSON.stringify(request, null, 2)}\n`, "utf8");
+  writeJson(io.stdout, {
+    ok: true,
+    savedTo: out,
+    work,
+    ids: { claim, question, hypothesis, experiment, procedure: procedureId },
+    artifact: { version: commit, digest },
+  });
 }
 
 async function init(options: Options, io: CliIo): Promise<void> {
@@ -355,6 +498,11 @@ function help(io: CliIo): void {
   events export --target fukuro [--since <EVT-id>] [--run <RUN-id>] [--out <path>]
   bouro flush [--bouro-bin <path>] [--bouro-vault <path>] [--store <path>]
   demo [--store <path>]
+  prepare --work <owner/repo#n> --title <name> --workspace <dir> --commands <json>
+      [--question <text>] [--closure-rule <text>] [--procedure-path <rel>]
+      [--tier <tier>] [--timeout-ms <n>] [--out <path>]
+      (find-or-creates the Bouro chain, pins the procedure, saves a reusable
+       run request under .ouro/requests/)
 
 Permission tiers:
   inspect (allowed by default), workspace-write, external-write

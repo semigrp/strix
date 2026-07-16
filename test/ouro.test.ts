@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execSync, spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
@@ -389,3 +389,69 @@ function parseNdjson(value: string): Array<Record<string, unknown>> {
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
+
+test("prepare: find-or-create is idempotent and the saved request is pinned", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ouro-prepare-"));
+  try {
+    // a stub bouro CLI: `find` consults a state file, create commands append to it
+    const stub = join(dir, "stub-bouro.js");
+    await writeFile(
+      stub,
+      `
+const { readFileSync, writeFileSync, existsSync } = require("node:fs");
+const state = process.env.STUB_STATE;
+const db = existsSync(state) ? JSON.parse(readFileSync(state, "utf8")) : { seq: 0, heads: [] };
+const args = process.argv.slice(2);
+const cmd = args[0];
+const val = (flag) => { const i = args.indexOf(flag); return i === -1 ? undefined : args[i + 1]; };
+if (cmd === "find") {
+  const hit = db.heads.find((h) => h.kind === val("--kind") && h.title === val("--title"));
+  process.stdout.write(JSON.stringify(hit ? { found: true, revision: { id: hit.id } } : { found: false }));
+} else {
+  db.seq += 1;
+  const id = cmd.toUpperCase().slice(0, 3) + "-" + String(db.seq).padStart(4, "0");
+  db.heads.push({ kind: cmd, title: val("--title"), id });
+  writeFileSync(state, JSON.stringify(db));
+  process.stdout.write(JSON.stringify({ ok: true, result: { id } }));
+}
+`,
+      "utf8",
+    );
+    // a minimal git workspace with a vendored procedure
+    const ws = join(dir, "ws");
+    const git = (args: string) =>
+      execSync(`git -c user.email=t@example.com -c user.name=t ${args}`, { cwd: ws, stdio: ["ignore", "pipe", "ignore"] });
+    await mkdir(join(ws, "procedures"), { recursive: true });
+    await writeFile(join(ws, "procedures", "quality-gate.mjs"), "process.exit(0);\n", "utf8");
+    execSync(`git init -q ${ws}`);
+    git("add -A");
+    git("commit -q -m init");
+    git("remote add origin https://example.com/acme/widget.git");
+
+    const writes: string[] = [];
+    const io = { cwd: dir, stdout: { write: (v: string) => writes.push(v) }, stderr: { write: () => {} } };
+    const state = join(dir, "stub-state.json");
+    process.env.STUB_STATE = state;
+    const argv = [
+      "prepare", "--work", "acme/widget#7", "--title", "widget gates",
+      "--workspace", ws, "--commands", '[["node","-e","process.exit(0)"]]',
+      "--bouro-bin", stub,
+    ];
+    await runCli(argv, io);
+    const first = JSON.parse(writes.join(""));
+    assert.equal(first.ok, true);
+    assert.equal(first.ids.claim, "CLA-0001");
+    assert.match(first.artifact.digest, /^sha256:[0-9a-f]{64}$/);
+    const saved = JSON.parse(await readFile(first.savedTo, "utf8"));
+    assert.equal(saved.schema, "ouro.run-request/v1");
+    assert.equal(saved.procedure.artifact.id, "acme/widget:procedures/quality-gate.mjs");
+
+    writes.length = 0;
+    await runCli(argv, io);
+    const second = JSON.parse(writes.join(""));
+    assert.deepEqual(second.ids, first.ids); // no duplicate heads on re-run
+  } finally {
+    delete process.env.STUB_STATE;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
