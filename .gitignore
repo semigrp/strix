@@ -1,5 +1,5 @@
 node_modules/
 dist/
-.ouro/
+test/.tmp/
 *.log
 *.tmp

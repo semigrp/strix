@@ -1,166 +1,97 @@
-# Ouro
+# ouro（往路）
 
-Ouro is the local-first outbound execution engine for reproducible AI-agent loops. It turns one
-external Work item into a pinned, inspectable execution path:
+> The outbound leg of a journey is **ōro** (往路) — yes, it still sounds like *ouro*boros.
+> ouro is the checkpoint at the start of that leg: **no commit leaves without a green,
+> commit-pinned quality gate.**
 
-```text
-Work -> Plan -> Task -> ContextBundle -> ProcedureBinding -> Run -> Attempt -> Gate -> Result
+ouro does exactly one job, in one sentence: *run the repository's quality gates once,
+deterministically, with evidence — and refuse the push when HEAD never passed.*
+
+## Why it looks like this (the honest version)
+
+ouro v0.1 was an execution engine: Work → Plan → Task → ContextBundle → ProcedureBinding →
+Run → Attempt → Gate → Result, driven by hand-authored run-request files. It worked — and
+was used exactly once outside demos. Meanwhile a 120-line pair of hook scripts doing the
+same essential job (commit-pinned gate marker + push denial) fired every single day and
+caught real gate-skipping attempts.
+
+The lesson is the family's founding principle (fukuro ADR 0001, reconfirmed empirically):
+**structures survive only where their write path is automatic; ceremony starves.** So v0.2
+deletes the engine and keeps the checkpoint. See
+[ADR 0002](docs/adr/0002-refound-as-the-pre-push-checkpoint.md).
+
+## The mechanism
+
+```
+ouro gate <repo>     # run gates (stdio inherited — exit codes are never masked)
+                     #   green -> <gitdir>/ouro-gate-pass = HEAD sha
+                     #   red   -> no marker, exit 1
+git push ...         # PreToolUse hook `ouro pregate` denies unless marker == HEAD
+ouro emit <repo> | fukuro import    # gate evidence -> the event ledger (idempotent)
 ```
 
-Ouro owns execution state. [Negura](https://github.com/semigrp/negura) owns knowledge meaning,
-Evidence, and Decisions. [Fukuro](https://github.com/semigrp/fukuro) owns telemetry analysis,
-baselines, and Findings. Repositories own executable artifact bytes, while issue trackers own issue
-and pull-request state.
+- **The marker is per-commit.** Any new commit invalidates it. There is no "gates passed
+  recently"; only "this exact HEAD passed".
+- **Gate and push must be separate commands.** Chaining them (`gate && push`) reintroduces
+  the exit-code masking the guard exists to prevent. The deny message says so.
+- **Fail-open where it should be**: not a push, `--dry-run`, or no git context — the guard
+  stays silent. Fail-closed where it must be: an ungated HEAD never pushes quietly.
+- **Worktree-safe**: markers live in the resolved real git dir (`--absolute-git-dir`).
 
-## System boundary
+### Gate discovery
 
-| Concern | Source of truth |
-| --- | --- |
-| Source, prompts, workflows, procedure bytes | Repository or artifact store |
-| Issue and pull-request state | External issue tracker |
-| Work projection, Plan, Task, Run, Attempt, Gate, workspace binding | Ouro |
-| Concept, Claim, Question, Hypothesis, ExperimentDefinition | Negura |
-| ProcedureDefinition, Evidence meaning and Decision | Negura |
-| Telemetry ingestion, baseline, Finding, improvement effect | Fukuro |
+1. `<repo>/.ouro.json` — `{"gates": ["<full shell command>", ...]}` — the canon.
+2. Otherwise `package.json` scripts `typecheck` / `lint` / `build` / `test`
+   (pnpm / yarn / npm detected by lockfile).
 
-Ouro never writes another system's database or vault. The Negura integration uses explicit CLI
-query/command calls. The Fukuro integration is deterministic NDJSON export from Ouro's event log.
-There is no shared package, integration repository, event broker, or distributed transaction.
+### Wiring (Claude Code)
 
-See [ADR 0001](docs/adr/0001-ouro-boundary-and-execution.md).
+`ouro hooks` prints the paste-ready `settings.json` snippet:
 
-## Guarantees
-
-- Every Run pins the Negura Experiment, ProcedureDefinition, ContextBundle, ontology release, and
-  selected knowledge revisions used for execution.
-- A ProcedureArtifact requires a logical version, URI, and SHA-256 digest.
-- Verified procedure bytes are copied to a Run-owned snapshot before execution; the snapshot is
-  what the process actually runs.
-- Processes are spawned without a shell and receive only explicitly inherited or set environment
-  variables plus Ouro's input locator.
-- Timeout, bounded output capture, retry, and exit-code Gates are persisted per Attempt.
-- Store replacement is atomic and one writer lock serializes a Run.
-- Execution events form an append-only SHA-256 chain.
-- The event log is also the Fukuro outbox. Re-export preserves each Ouro event ID as
-  `sourceEventId`.
-- Evidence registration uses a durable Negura outbox. A completed Run stays complete when delivery
-  fails, and replay uses the same Negura idempotency key.
-- Telemetry is field-whitelisted and strips all ResourceRef URIs. It never includes environment
-  values, input values, stdout, stderr, prompts, or credentials.
-- `doctor` verifies store structure, event-chain integrity, ContextBundle digest, reference
-  consistency, and local Run artifact bytes.
-
-## Agents
-
-AI agents (and new machines) can reach the operational level from this repository alone: see
-[AGENTS.md](AGENTS.md) for setup and conventions, and [skills/outbound.md](skills/outbound.md) for
-the portable "when does work belong in a Run" regime.
-
-## Quick start
-
-Requirements: Node.js 20 or newer and pnpm.
-
-```bash
-git clone https://github.com/semigrp/ouro
-cd ouro
-pnpm install
-pnpm test
-pnpm run demo
-pnpm run doctor
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "node /path/to/ouro/cli/ouro.ts pregate" }] }
+    ]
+  }
+}
 ```
 
-The default store is `.ouro/store.json`; generated Run artifacts live under `.ouro/artifacts`.
-Override the store with `--store <path>`.
+Optional: set `OURO_GUARD_LOG=<path>` to append a JSONL record of every denial (patrol
+material for the return path).
 
-## Run a Work item
+### Evidence
 
-Create an `ouro.run-request/v1` document using
-[`contracts/fixtures/run-request.valid.json`](contracts/fixtures/run-request.valid.json) as the
-shape reference. Replace all example ResourceRefs, paths, versions, and digests with real pinned
-values.
+`ouro emit` prints the last gate run as one `fukuro.telemetry-event/v1` line
+(`ouro_gate_passed` / `ouro_gate_failed`, with the gate list, its sha256 digest, duration,
+and the commit ref). `fukuro import` is idempotent on (source, sourceEventId) =
+(`ouro`, `repo:sha:result`) — re-emitting is always safe. Failures are first-class: a
+red-then-green pair on the same commit is visible retry history, not noise.
 
-Configure the Negura receiver and execute:
+## Division of labor
 
-```bash
-export NEGURA_BIN=/absolute/path/to/negura/dist/bin/negura.js
-export NEGURA_VAULT=/absolute/path/to/negura/vault/store.json
+| Concern | Lives in |
+|---|---|
+| What the gates are | The repo (`.ouro.json` / its own scripts) |
+| Whether HEAD passed | ouro (marker + guard) |
+| What happened, over time | [fukuro](https://github.com/semigrp/fukuro) (via the vendored import contract) |
+| Why the rule exists | Your noun store (norms with `enforcement: hook`) |
 
-node dist/bin/ouro.js run --spec ./run-request.json
-node dist/bin/ouro.js show --run RUN-0001
-```
+## What ouro is not
 
-`inspect` is the only permission tier accepted by default. Higher declared tiers require an
-explicit invocation gate:
+- **Not CI.** It runs on your machine, before the push, in seconds. CI remains the
+  authority after the push.
+- **Not a runner or an orchestrator.** No plans, no tasks, no permission tiers.
+- **Not a policy engine.** One rule, hardcoded: ungated HEADs do not leave.
 
-```bash
-node dist/bin/ouro.js run \
-  --spec ./run-request.json \
-  --allow-tier workspace-write
-```
+## Status
 
-Permission tiers are authorization declarations, not an operating-system sandbox. A procedure
-still has the permissions of the user running Ouro. Use a container, VM, restricted OS account, or
-another external sandbox for untrusted artifacts. Ouro does not support shell pipelines.
-
-## Downstream replay
-
-Export deterministic Fukuro telemetry:
-
-```bash
-node dist/bin/ouro.js events export --target fukuro > ouro-events.ndjson
-node dist/bin/ouro.js events export --target fukuro --since EVT-000010
-```
-
-Retry pending Negura Evidence commands:
-
-```bash
-node dist/bin/ouro.js negura flush
-```
-
-Fukuro owns the `fukuro.telemetry-event/v1` receiver contract
-(`contracts/telemetry-event.v1.schema.json` in the Fukuro repository) and ships the matching
-ingest command. Ouro vendors a snapshot of that contract and produces validated NDJSON without
-blocking Runs; the exported stream pipes straight into it:
-
-```bash
-node dist/bin/ouro.js events export --target fukuro | npx fukuro import
-```
-
-Import is idempotent on `sourceEventId` — re-exporting and re-piping the same range is safe.
-
-## CLI
-
-```text
-ouro init
-ouro doctor
-ouro status
-ouro run --spec <run-request.json>
-ouro show --run <RUN-id>
-ouro events export --target fukuro [--since <EVT-id>] [--run <RUN-id>]
-ouro negura flush
-ouro demo
-```
-
-## Contracts
-
-- `contracts/run-request.v1.schema.json` is owned by Ouro.
-- `contracts/resource-ref.v1.schema.json` embeds the common identity convention.
-- `contracts/negura-context-query.v1.schema.json` is a producer-side Negura snapshot.
-- `contracts/negura-register-evidence.v1.schema.json` is a producer-side Negura snapshot.
-- `contracts/fukuro-telemetry-event.v1.schema.json` is the pending Fukuro receiver snapshot.
-
-CI checks the Negura snapshots against a separate checkout of the actual Negura repository and runs
-a real cross-repository Context query, Ouro process, Evidence registration, and idempotent replay.
-
-## Current scope
-
-The first release deliberately supports one Work, one generated Plan and Task, and one pinned
-ProcedureArtifact per Run. It does not yet provide concurrent writers, a scheduler, multi-agent
-routing, remote secret injection, process-tree isolation, or automatic knowledge promotion.
-
-The acceptance evidence and external Fukuro dependency are tracked in
-[ACCEPTANCE.md](docs/ACCEPTANCE.md).
+v0.2 — the refounding. `gate` / `pregate` / `emit` / `hooks`, zero dependencies,
+Node ≥ 24 (direct TypeScript execution). The mechanism it packages ran in production
+daily for a week before this release and blocked real ungated pushes (3 recorded hits).
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+[Apache-2.0](LICENSE)
