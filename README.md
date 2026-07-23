@@ -1,15 +1,14 @@
-# ouro（往路）
+# Strix
 
-> The outbound leg of a journey is **ōro** (往路) — yes, it still sounds like *ouro*boros.
-> ouro is the checkpoint at the start of that leg: **no commit leaves without a green,
-> commit-pinned quality gate.**
+> *Strix* is Latin for owl: the watcher at the checkpoint before code leaves.
+> **No commit leaves without a green, commit-pinned quality gate.**
 
-ouro does exactly one job, in one sentence: *run the repository's quality gates once,
+Strix does exactly one job, in one sentence: *run the repository's quality gates once,
 deterministically, with evidence — and refuse the push when HEAD never passed.*
 
 ## Why it looks like this (the honest version)
 
-ouro v0.1 was an execution engine: Work → Plan → Task → ContextBundle → ProcedureBinding →
+Before the rename, ouro v0.1 was an execution engine: Work → Plan → Task → ContextBundle → ProcedureBinding →
 Run → Attempt → Gate → Result, driven by hand-authored run-request files. It worked — and
 was used exactly once outside demos. Meanwhile a 120-line pair of hook scripts doing the
 same essential job (commit-pinned gate marker + push denial) fired every single day and
@@ -19,15 +18,17 @@ The lesson is the family's founding principle (fukuro ADR 0001, reconfirmed empi
 **structures survive only where their write path is automatic; ceremony starves.** So v0.2
 deletes the engine and keeps the checkpoint. See
 [ADR 0002](docs/adr/0002-refound-as-the-pre-push-checkpoint.md).
+The repository and product were renamed to Strix in
+[ADR 0003](docs/adr/0003-rename-ouro-to-strix.md).
 
 ## The mechanism
 
 ```
-ouro gate <repo>     # run gates (stdio inherited — exit codes are never masked)
-                     #   green -> <gitdir>/ouro-gate-pass = HEAD sha
+strix gate <repo>     # run gates (stdio inherited — exit codes are never masked)
+                     #   green -> <gitdir>/strix-gate-pass = HEAD sha
                      #   red   -> no marker, exit 1
-git push ...         # PreToolUse hook `ouro pregate` denies unless marker == HEAD
-ouro emit <repo> | fukuro import    # gate evidence -> the event ledger (idempotent)
+git push ...         # PreToolUse hook `strix pregate` denies unless marker == HEAD
+strix emit <repo> | fukuro import    # gate evidence -> the event ledger (idempotent)
 ```
 
 - **The marker is per-commit.** Any new commit invalidates it. There is no "gates passed
@@ -40,46 +41,46 @@ ouro emit <repo> | fukuro import    # gate evidence -> the event ledger (idempot
 
 ### Gate discovery
 
-1. `<repo>/.ouro.json` — `{"gates": ["<full shell command>", ...]}` — the canon.
+1. `<repo>/.strix.json` — `{"gates": ["<full shell command>", ...]}` — the canon.
 2. Otherwise `package.json` scripts `typecheck` / `lint` / `build` / `test`
    (pnpm / yarn / npm detected by lockfile).
 
 ### Wiring (Claude Code)
 
-`ouro hooks` prints the paste-ready `settings.json` snippet:
+`strix hooks` prints the paste-ready `settings.json` snippet:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
       { "matcher": "Bash",
-        "hooks": [{ "type": "command", "command": "node /path/to/ouro/cli/ouro.ts pregate" }] }
+        "hooks": [{ "type": "command", "command": "node /path/to/strix/cli/strix.ts pregate" }] }
     ]
   }
 }
 ```
 
-Optional: set `OURO_GUARD_LOG=<path>` to append a JSONL record of every denial (patrol
+Optional: set `STRIX_GUARD_LOG=<path>` to append a JSONL record of every denial (patrol
 material for the return path).
 
 ### Evidence
 
-`ouro emit` prints the last gate run as one `fukuro.telemetry-event/v1` line
-(`ouro_gate_passed` / `ouro_gate_failed`, with the gate list, its sha256 digest, duration,
+`strix emit` prints the last gate run as one `fukuro.telemetry-event/v1` line
+(`strix_gate_passed` / `strix_gate_failed`, with the gate list, its sha256 digest, duration,
 and the commit ref). `fukuro import` is idempotent on (source, sourceEventId) =
-(`ouro`, `repo:sha:result`) — re-emitting is always safe. Failures are first-class: a
+(`strix`, `repo:sha:result`) — re-emitting is always safe. Failures are first-class: a
 red-then-green pair on the same commit is visible retry history, not noise.
 
 ## Division of labor
 
 | Concern | Lives in |
 |---|---|
-| What the gates are | The repo (`.ouro.json` / its own scripts) |
-| Whether HEAD passed | ouro (marker + guard) |
+| What the gates are | The repo (`.strix.json` / its own scripts) |
+| Whether HEAD passed | strix (marker + guard) |
 | What happened, over time | [fukuro](https://github.com/semigrp/fukuro) (via the vendored import contract) |
 | Why the rule exists | Your noun store (norms with `enforcement: hook`) |
 
-## What ouro is not
+## What strix is not
 
 - **Not CI.** It runs on your machine, before the push, in seconds. CI remains the
   authority after the push.
@@ -88,9 +89,17 @@ red-then-green pair on the same commit is visible retry history, not noise.
 
 ## Status
 
-v0.2 — the refounding. `gate` / `pregate` / `emit` / `hooks`, zero dependencies,
+v0.3 — renamed to Strix with bounded Ouro read compatibility. The v0.2 checkpoint exposes
+`gate` / `pregate` / `emit` / `hooks`, zero dependencies,
 Node ≥ 24 (direct TypeScript execution). The mechanism it packages ran in production
 daily for a week before this release and blocked real ungated pushes (3 recorded hits).
+
+## Migration from ouro
+
+Use `strix`, `.strix.json`, `STRIX_GUARD_LOG`, and the `strix_*` telemetry kinds for
+new work. The `ouro` CLI, `.ouro.json`, `OURO_GUARD_LOG`, exact-HEAD legacy marker,
+and un-emitted legacy gate record remain readable compatibility paths. Strix writes
+only Strix-named state. See [ADR 0003](docs/adr/0003-rename-ouro-to-strix.md).
 
 ## License
 

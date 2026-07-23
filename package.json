@@ -1,11 +1,14 @@
 {
-  "name": "ouro",
-  "version": "0.2.0",
+  "name": "strix",
+  "version": "0.3.0",
   "description": "The checkpoint before the outbound leg: commit-pinned quality gates, a push guard, and gate evidence",
   "type": "module",
-  "bin": { "ouro": "./cli/ouro.ts" },
+  "bin": {
+    "strix": "./cli/strix.ts",
+    "ouro": "./cli/strix.ts"
+  },
   "engines": { "node": ">=24" },
   "scripts": { "test": "node test/smoke.mjs" },
-  "repository": { "type": "git", "url": "https://github.com/semigrp/ouro.git" },
+  "repository": { "type": "git", "url": "https://github.com/semigrp/strix.git" },
   "license": "Apache-2.0"
 }

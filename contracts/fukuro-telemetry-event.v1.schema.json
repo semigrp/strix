@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://semigrp.dev/ouro/contracts/fukuro-telemetry-event.v1.schema.json",
+  "$id": "https://semigrp.dev/strix/contracts/fukuro-telemetry-event.v1.schema.json",
   "title": "Vendored Fukuro TelemetryEventV1",
   "type": "object",
   "required": ["schema", "source", "sourceEventId", "occurredAt", "kind", "subject", "refs", "data"],
   "properties": {
     "schema": { "const": "fukuro.telemetry-event/v1" },
-    "source": { "const": "ouro" },
+    "source": { "enum": ["strix", "ouro"], "description": "strix is canonical; ouro is accepted only for legacy gate records." },
     "sourceEventId": { "type": "string", "minLength": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
     "kind": { "type": "string", "minLength": 1 },

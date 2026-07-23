@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ouro（往路）— the checkpoint before the outbound leg:
+// Strix — the owl at the checkpoint before the outbound leg:
 // run the repository's quality gates exactly once, deterministically, with
 // evidence — and refuse the push when HEAD never passed.
 //
@@ -12,8 +12,10 @@ import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } fr
 import { createHash } from 'node:crypto';
 import { join, dirname, basename } from 'node:path';
 
-const MARKER = 'ouro-gate-pass';
-const LAST = 'ouro-last-gate.json';
+const MARKER = 'strix-gate-pass';
+const LEGACY_MARKER = 'ouro-gate-pass';
+const LAST = 'strix-last-gate.json';
+const LEGACY_LAST = 'ouro-last-gate.json';
 
 // ---------- git context ----------
 interface Ctx { root: string; sha: string; gitDir: string }
@@ -28,15 +30,19 @@ function gitCtx(dir: string): Ctx | null {
 }
 
 // ---------- gate command discovery ----------
-// 1) <repo>/.ouro.json {"gates": ["<full shell command>", ...]} — the canon
+// 1) <repo>/.strix.json {"gates": ["<full shell command>", ...]} — the canon
+//    .ouro.json remains a read-only compatibility fallback.
 // 2) package.json scripts: typecheck / lint / build / test (pnpm/yarn/npm detected)
 function detectGates(root: string): string[] {
-  const cfg = join(root, '.ouro.json');
-  if (existsSync(cfg)) {
-    try {
-      const g = JSON.parse(readFileSync(cfg, 'utf8')).gates;
-      if (Array.isArray(g) && g.length) return g;
-    } catch { /* broken config falls through to detection */ }
+  const configNames = existsSync(join(root, '.strix.json')) ? ['.strix.json'] : ['.ouro.json'];
+  for (const name of configNames) {
+    const cfg = join(root, name);
+    if (existsSync(cfg)) {
+      try {
+        const g = JSON.parse(readFileSync(cfg, 'utf8')).gates;
+        if (Array.isArray(g) && g.length) return g;
+      } catch { /* broken config falls through to detection */ }
+    }
   }
   const pkgPath = join(root, 'package.json');
   if (!existsSync(pkgPath)) return [];
@@ -53,17 +59,17 @@ const digest = (v: unknown): string =>
 
 // ---------- gate ----------
 // Runs every gate with stdio inherited — no pipes, no masked exit codes.
-// Green: write <gitDir>/ouro-gate-pass = HEAD sha. Red: no marker, exit 1.
-// Either way <gitDir>/ouro-last-gate.json records what ran, for `ouro emit`.
+// Green: write <gitDir>/strix-gate-pass = HEAD sha. Red: no marker, exit 1.
+// Either way <gitDir>/strix-last-gate.json records what ran, for `strix emit`.
 function cmdGate(dir: string): void {
   const ctx = gitCtx(dir);
-  if (!ctx) { console.error(`ouro gate: not a git repository: ${dir}`); process.exit(2); }
+  if (!ctx) { console.error(`strix gate: not a git repository: ${dir}`); process.exit(2); }
   const gates = detectGates(ctx.root);
   if (!gates.length) {
-    console.error('ouro gate: no gates found (.ouro.json {"gates":[...]} or package.json scripts required)');
+    console.error('strix gate: no gates found (.strix.json {"gates":[...]} or package.json scripts required)');
     process.exit(2);
   }
-  console.error(`ouro gate: ${ctx.root} @ ${ctx.sha.slice(0, 8)} — ${gates.length} gate(s)`);
+  console.error(`strix gate: ${ctx.root} @ ${ctx.sha.slice(0, 8)} — ${gates.length} gate(s)`);
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   let failed: string | null = null;
@@ -74,6 +80,7 @@ function cmdGate(dir: string): void {
     } catch { failed = cmd; break; }
   }
   const record = {
+    producer: 'strix',
     repo: basename(ctx.root), root: ctx.root, sha: ctx.sha,
     gates, gatesDigest: digest(gates),
     result: failed ? 'failed' : 'passed', failedCommand: failed,
@@ -107,11 +114,14 @@ function cmdPregate(): void {
   const ctx = gitCtx(dir);
   if (!ctx) process.exit(0); // no git context — stay out of the way
 
-  const marker = join(ctx.gitDir, MARKER);
-  const passed = existsSync(marker) ? readFileSync(marker, 'utf8').trim() : '';
+  const markerPaths = [join(ctx.gitDir, MARKER), join(ctx.gitDir, LEGACY_MARKER)];
+  const passed = markerPaths
+    .filter((path) => existsSync(path))
+    .map((path) => readFileSync(path, 'utf8').trim())
+    .find((sha) => sha === ctx.sha) ?? '';
   if (passed === ctx.sha) process.exit(0);
 
-  const log = process.env.OURO_GUARD_LOG;
+  const log = process.env.STRIX_GUARD_LOG ?? process.env.OURO_GUARD_LOG;
   if (log) {
     try {
       mkdirSync(dirname(log), { recursive: true });
@@ -139,20 +149,24 @@ function cmdPregate(): void {
 // ---------- emit ----------
 // Prints the last gate record as one fukuro.telemetry-event/v1 NDJSON line
 // (vendored contract: contracts/). Pipe into `fukuro import` — idempotent on
-// (source=ouro, sourceEventId=repo:sha:result), so re-emitting is safe.
+// New records use source=strix. Legacy ouro records retain their old wire identity,
+// preventing a re-emit after upgrade from duplicating Fukuro history.
 function cmdEmit(dir: string): void {
   const ctx = gitCtx(dir);
-  if (!ctx) { console.error(`ouro emit: not a git repository: ${dir}`); process.exit(2); }
-  const path = join(ctx.gitDir, LAST);
-  if (!existsSync(path)) { console.error('ouro emit: no gate record (run `ouro gate` first)'); process.exit(2); }
+  if (!ctx) { console.error(`strix emit: not a git repository: ${dir}`); process.exit(2); }
+  const currentPath = join(ctx.gitDir, LAST);
+  const legacyPath = join(ctx.gitDir, LEGACY_LAST);
+  const path = existsSync(currentPath) ? currentPath : legacyPath;
+  if (!existsSync(path)) { console.error('strix emit: no gate record (run `strix gate` first)'); process.exit(2); }
   const r = JSON.parse(readFileSync(path, 'utf8'));
+  const source = r.producer === 'strix' || path === currentPath ? 'strix' : 'ouro';
   console.log(JSON.stringify({
     schema: 'fukuro.telemetry-event/v1',
-    source: 'ouro',
+    source,
     sourceEventId: `${r.repo}:${r.sha}:${r.result}`,
     occurredAt: r.occurredAt,
-    kind: r.result === 'passed' ? 'ouro_gate_passed' : 'ouro_gate_failed',
-    subject: { system: 'ouro', type: 'repository', id: r.repo, version: '1' },
+    kind: `${source}_gate_${r.result}`,
+    subject: { system: source, type: 'repository', id: r.repo, version: '1' },
     refs: [{ system: 'git', type: 'commit', id: r.sha, version: '1' }],
     data: { gates: r.gates, gatesDigest: r.gatesDigest, durationMs: r.durationMs, failedCommand: r.failedCommand },
   }));
@@ -172,14 +186,14 @@ function cmdHooks(): void {
   }, null, 2));
 }
 
-const HELP = `ouro — the checkpoint before the outbound leg (gate / pregate / emit / hooks)
+const HELP = `strix — the owl at the checkpoint before the outbound leg (gate / pregate / emit / hooks)
 
-  ouro gate [repoDir]     run the repo's gates; green -> commit-pinned marker, red -> exit 1
-  ouro pregate            PreToolUse hook: deny \`git push\` when HEAD has no green marker
-  ouro emit [repoDir]     print the last gate record as fukuro.telemetry-event/v1 (| fukuro import)
-  ouro hooks              print the Claude Code settings.json wiring
+  strix gate [repoDir]     run the repo's gates; green -> commit-pinned marker, red -> exit 1
+  strix pregate            PreToolUse hook: deny \`git push\` when HEAD has no green marker
+  strix emit [repoDir]     print the last gate record as fukuro.telemetry-event/v1 (| fukuro import)
+  strix hooks              print the Claude Code settings.json wiring
 
-  Gate discovery: <repo>/.ouro.json {"gates": [...]}, else package.json scripts
+  Gate discovery: <repo>/.strix.json {"gates": [...]}, legacy .ouro.json, else package.json scripts
   (typecheck/lint/build/test; pnpm/yarn/npm detected). Run gate and push as
   SEPARATE commands — chaining them masks the exit code the guard exists to protect.
 `;
